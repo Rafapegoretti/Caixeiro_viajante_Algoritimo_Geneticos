@@ -1,75 +1,83 @@
 import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
 
-class AlgoritmoGeneticoPCV:
-    def __init__(self, num_cidades, tamanho_populacao, taxa_mutacao, max_geracoes):
-        self.num_cidades = num_cidades
-        self.tamanho_populacao = tamanho_populacao
-        self.taxa_mutacao = taxa_mutacao
-        self.max_geracoes = max_geracoes
-        self.distancias = np.random.randint(1, 100, size=(num_cidades, num_cidades))
+def calcular_distancia(percurso, distancias):
+    """Calcula a distância total de um dado percurso."""
+    return sum(distancias[percurso[i], percurso[(i + 1) % len(percurso)]] for i in range(len(percurso)))
 
-    def inicializar_populacao(self):
-        """Inicializa a população com permutações aleatórias das cidades."""
-        self.populacao = np.array([np.random.permutation(self.num_cidades) for _ in range(self.tamanho_populacao)])
+def selecao_torneio(populacao, distancias, tamanho_torneio=3):
+    """Seleciona um indivíduo via torneio."""
+    competidores = np.random.choice(len(populacao), tamanho_torneio, replace=False)
+    vencedor = min(competidores, key=lambda x: calcular_distancia(populacao[x], distancias))
+    return populacao[vencedor].copy()
 
-    def calcular_aptidao(self, rota):
-        """Calcula a aptidão de uma rota, que é o inverso da distância total percorrida."""
-        distancia_total = sum(self.distancias[rota[i], rota[i + 1]] for i in range(self.num_cidades - 1))
-        distancia_total += self.distancias[rota[-1], rota[0]]  # Retorna à cidade inicial
-        return 1 / distancia_total
+def pmx(parent1, parent2):
+    """Realiza o crossover PMX entre dois pais."""
+    size = len(parent1)
+    child = [None]*size
+    cx1, cx2 = sorted(np.random.choice(size, 2, replace=False))
+    mapping = {}
+    for i in range(cx1, cx2 + 1):
+        child[i] = parent1[i]
+        mapping[parent1[i]] = parent2[i]
 
-    def selecionar_pais(self):
-        """Seleciona dois pais aleatoriamente para o crossover, sem reposição."""
-        indices = np.random.choice(range(self.tamanho_populacao), size=2, replace=False)
-        return self.populacao[indices]
+    for i in range(size):
+        if child[i] is None:
+            while parent2[i] in mapping:
+                parent2[i] = mapping[parent2[i]]
+            child[i] = parent2[i]
+    return child
 
-    def crossover(self, pai1, pai2):
-        """Realiza o crossover de ordem entre dois pais para produzir um filho."""
-        ponto_corte = np.random.randint(1, self.num_cidades)
-        filho = np.empty(self.num_cidades, dtype=int)
-        filho[:ponto_corte] = pai1[:ponto_corte]
-        cidade_index = ponto_corte
-        for cidade in pai2:
-            if cidade not in filho[:cidade_index]:
-                filho[cidade_index] = cidade
-                cidade_index += 1
-                if cidade_index == self.num_cidades:
-                    break
-        return filho
+def mutacao_swap(percurso):
+    """Realiza uma mutação de troca em um percurso."""
+    idx1, idx2 = np.random.choice(len(percurso), 2, replace=False)
+    percurso[idx1], percurso[idx2] = percurso[idx2], percurso[idx1]
+    return percurso
 
-    def mutacao(self, filho):
-        """Mutação por troca, trocando duas cidades na rota com uma dada probabilidade."""
-        for i in range(self.num_cidades):
-            if np.random.rand() < self.taxa_mutacao:
-                j = np.random.randint(self.num_cidades)
-                filho[i], filho[j] = filho[j], filho[i]
+def atualizar_populacao(populacao, nova_populacao, distancias, n_elites=1):
+    """Atualiza a população com a nova geração, mantendo os melhores indivíduos."""
+    combinado = populacao + nova_populacao
+    combinado.sort(key=lambda x: calcular_distancia(x, distancias))
+    return combinado[:len(populacao)]
 
-    def evoluir(self):
-        """Executa o processo de evolução por um número definido de gerações."""
-        self.inicializar_populacao()
-        for geracao in range(self.max_geracoes):
-            nova_populacao = np.zeros((self.tamanho_populacao, self.num_cidades), dtype=int)
-            for i in range(0, self.tamanho_populacao, 2):
-                pai1, pai2 = self.selecionar_pais()
-                filho1 = self.crossover(pai1, pai2)
-                filho2 = self.crossover(pai2, pai1)
-                self.mutacao(filho1)
-                self.mutacao(filho2)
-                nova_populacao[i], nova_populacao[i + 1] = filho1, filho2
-            self.populacao = nova_populacao
-            melhor_rota = max(self.populacao, key=self.calcular_aptidao)
-            melhor_aptidao = self.calcular_aptidao(melhor_rota)
-            print(f"Geração {geracao + 1}: Melhor Aptidão = {melhor_aptidao:.4f}")
+def algoritmo_genetico(distancias, num_geracoes=100, tamanho_populacao=20):
+    """Executa o algoritmo genético para o Problema do Caixeiro Viajante."""
+    populacao = [np.random.permutation(len(distancias)) for _ in range(tamanho_populacao)]
+    
+    for _ in range(num_geracoes):
+        nova_populacao = []
+        for _ in range(tamanho_populacao // 2):
+            p1 = selecao_torneio(populacao, distancias)
+            p2 = selecao_torneio(populacao, distancias)
+            filho = pmx(p1, p2)
+            filho = mutacao_swap(filho)
+            nova_populacao.append(filho)
+        populacao = atualizar_populacao(populacao, nova_populacao, distancias)
+    
+    return populacao[0]
 
-        melhor_rota = max(self.populacao, key=self.calcular_aptidao)
-        melhor_aptidao = self.calcular_aptidao(melhor_rota)
-        print(f"Melhor rota: {melhor_rota}")
-        print(f"Melhor aptidão: {melhor_aptidao:.4f}")
+# Carregar a matriz de distâncias de um arquivo CSV
+distancias = pd.read_csv('distancias.csv', header=None).values
 
-if __name__ == "__main__":
-    num_cidades = 10
-    tamanho_populacao = 100
-    taxa_mutacao = 0.01
-    max_geracoes = 100
-    ag_pcv = AlgoritmoGeneticoPCV(num_cidades, tamanho_populacao, taxa_mutacao, max_geracoes)
-    ag_pcv.evoluir()
+# Executar o algoritmo genético
+melhor_rota = algoritmo_genetico(distancias)
+melhor_distancia = calcular_distancia(melhor_rota, distancias)
+
+print("Melhor rota:", melhor_rota)
+print("Distância da melhor rota:", melhor_distancia)
+
+# Plotar a rota
+coordenadas = np.random.rand(len(distancias), 2) * 10
+plt.figure(figsize=(8, 6))
+plt.scatter(coordenadas[:, 0], coordenadas[:, 1], color='red')
+plt.title("Mapa das Cidades com Melhor Rota do Caixeiro Viajante")
+for i in range(len(distancias)):
+    start = melhor_rota[i]
+    end = melhor_rota[(i + 1) % len(distancias)]
+    plt.plot([coordenadas[start, 0], coordenadas[end, 0]], [coordenadas[start, 1], coordenadas[end, 1]], 'k-')
+    plt.annotate(str(start), (coordenadas[start, 0], coordenadas[start, 1]), textcoords="offset points", xytext=(0,10), ha='center')
+plt.xlabel("Coordenada X")
+plt.ylabel("Coordenada Y")
+plt.grid(True)
+plt.show()
